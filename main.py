@@ -12,7 +12,7 @@ from telegram.ext import (
 
 from config import TOKEN, EKATERINBURG_TZ
 from format import format_datetime, format_timedelta
-from handle_document import user_schedules, handle_document
+from handle_document import handle_document, restore_reminders, storage
 
 # Устанавливаем русскую локаль для корректного отображения дат
 try:
@@ -25,15 +25,20 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     today_events = []
 
-    if user_id not in user_schedules:
+    # Загружаем расписание из хранилища
+    events = storage.load_schedule(user_id)
+
+    if not events:
         await update.message.reply_text("Ты ещё не загрузил расписание. Пришли .ics файл.")
         return
 
-    events = sorted(user_schedules[user_id], key=lambda e: e.begin.datetime)
+    # Сортируем события по времени начала
+    events = sorted(events, key=lambda e: e.begin.datetime)
 
+    current_date = date.today()
     for event in events:
         event_date = event.begin.datetime.astimezone(EKATERINBURG_TZ).date()
-        if event_date == date.today():
+        if event_date == current_date:
             time_str = format_datetime(event.begin.datetime, time_only=True)
             location = event.location or "место не указано"
             today_events.append(f"🕒 {time_str} — {event.name} ({location})")
@@ -104,7 +109,12 @@ async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+    builder = ApplicationBuilder()
+    builder.token(TOKEN)
+    builder.post_init(restore_reminders)
+
+    app = builder.build()
+
     app.add_handler(CommandHandler("today", today))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reminders", show_reminders))
