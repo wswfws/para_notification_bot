@@ -1,5 +1,7 @@
-import os
-from telegram import Update, Document
+import locale
+from datetime import datetime, date
+
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -7,37 +9,16 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from ics import Calendar
-from datetime import datetime, timedelta, date
-import tempfile
-from pytz import timezone
-import locale
 
-from config import TOKEN
+from config import TOKEN, EKATERINBURG_TZ
+from format import format_datetime, format_timedelta
+from handle_document import user_schedules, handle_document
 
 # Устанавливаем русскую локаль для корректного отображения дат
 try:
     locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
 except:
     locale.setlocale(locale.LC_TIME, 'ru_RU')
-
-user_schedules = {}
-EKATERINBURG_TZ = timezone('Asia/Yekaterinburg')  # Временная зона Екатеринбурга
-
-
-def format_datetime(dt: datetime, time_only: bool = False) -> str:
-    """Форматирует datetime в удобочитаемый вид с учётом временной зоны Екатеринбурга"""
-    dt = dt.astimezone(EKATERINBURG_TZ)
-    if time_only:
-        return dt.strftime("%H:%M")
-    return dt.strftime("%a, %d %b %Y в %H:%M")
-
-
-def format_timedelta(td: timedelta) -> str:
-    """Форматирует timedelta в понятный интервал"""
-    hours, remainder = divmod(td.seconds, 3600)
-    minutes = remainder // 60
-    return f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
 
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,73 +54,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/today - пары на сегодня\n"
         "/reminders - показать все активные напоминания"
     )
-
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc: Document = update.message.document
-    if not doc.file_name.endswith(".ics"):
-        await update.message.reply_text("Пожалуйста, пришли файл с расширением .ics")
-        return
-
-    file = await context.bot.get_file(doc.file_id)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".ics") as temp_file:
-        await file.download_to_drive(temp_file.name)
-
-        with open(temp_file.name, 'r', encoding='utf-8') as f:
-            cal = Calendar(f.read())
-
-        user_id = update.effective_user.id
-        user_schedules[user_id] = []
-        reminders_count = 0
-
-        # Удаляем старые напоминания для этого пользователя
-        current_jobs = [job for job in context.job_queue.jobs() if str(user_id) in job.name]
-        for job in current_jobs:
-            job.schedule_removal()
-
-        for event in cal.events:
-            event_dt = event.begin.datetime.astimezone(EKATERINBURG_TZ)
-            user_schedules[user_id].append(event)
-
-            notify_time = event_dt - timedelta(minutes=5)
-            now = datetime.now(EKATERINBURG_TZ)
-
-            if notify_time > now:
-                context.job_queue.run_once(
-                    callback=send_reminder,
-                    when=(notify_time - now),
-                    user_id=user_id,
-                    data={
-                        "event_name": event.name,
-                        "location": event.location,
-                        "event_time": event_dt,  # Сохраняем datetime объект
-                        "notify_time": notify_time  # Время напоминания
-                    },
-                    name=f"{user_id}_{event.name}_{event_dt.timestamp()}"
-                )
-                reminders_count += 1
-
-        await update.message.reply_text(
-            f"✅ Расписание успешно загружено!\n"
-            f"Всего пар: {len(user_schedules[user_id])}\n"
-            f"Активных напоминаний: {reminders_count}\n"
-            f"Используй /reminders для просмотра всех напоминаний"
-        )
-
-
-async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    text = (
-        f"⏰ Скоро пара!\n"
-        f"📚 {job.data['event_name']}\n"
-        f"📍 {job.data['location'] or 'место не указано'}\n"
-        f"🕒 Начало в {job.data['start_time']}\n"
-        f"📅 {job.data['full_time']}"
-    )
-    try:
-        await context.bot.send_message(chat_id=job.user_id, text=text)
-    except Exception as e:
-        print(f"Ошибка отправки сообщения: {e}")
 
 
 async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,6 +101,7 @@ async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Ошибка в show_reminders: {e}")
         await update.message.reply_text("Произошла ошибка при получении напоминаний")
+
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TOKEN).build()
