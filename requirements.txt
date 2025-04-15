@@ -3,3 +3,4 @@ python-telegram-bot[job-queue]
 ics
 apscheduler
 pytz
+fastapi
