@@ -15,7 +15,7 @@ EKATERINBURG_TZ = os.environ.get("TELEGRAM_TZ")
 
 if EKATERINBURG_TZ:
     try:
-        timezone(EKATERINBURG_TZ)  # Проверяем, что timezone валидный
+        EKATERINBURG_TZ = timezone(EKATERINBURG_TZ)  # Проверяем, что timezone валидный
         print(f"Часовой пояс установлен: {EKATERINBURG_TZ}")
     except Exception as e:
         print(f"Ошибка при установке часового пояса: {e}. Используется UTC.")
