@@ -8,10 +8,11 @@ from ics import Calendar, Event
 
 from bd.ScheduleStorage import ScheduleStorage
 from config import EKATERINBURG_TZ
-from send_reminder import send_reminder
+from send_reminder import check_and_send_reminders
 
 # Инициализация хранилища
 storage = ScheduleStorage()
+
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc: Document = update.message.document
@@ -29,39 +30,31 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         reminders_count = 0
 
-        # Удаляем старые напоминания для этого пользователя
-        current_jobs = [job for job in context.job_queue.jobs() if str(user_id) in job.name]
-        for job in current_jobs:
-            job.schedule_removal()
+        # Очищаем старые события для этого пользователя
+        storage.clear_user_events(user_id)
 
-        # Загружаем события из хранилища
-        events: List[Event] = storage.load_schedule(user_id)
-        events.clear()  # Очищаем старые события
-
+        # Добавляем новые события
+        events: List[Event] = []
         for event in cal.events:
             event_dt = event.begin.datetime.astimezone(EKATERINBURG_TZ)
-            events.append(event)  # Добавляем в список событий
+            events.append(event)
 
-            notify_time = event_dt - timedelta(minutes=5)
             now = datetime.now(EKATERINBURG_TZ)
-
+            notify_time = event_dt - timedelta(minutes=5)
             if notify_time > now:
-                context.job_queue.run_once(
-                    callback=send_reminder,
-                    when=(notify_time - now),
-                    user_id=user_id,
-                    data={
-                        "event_name": event.name,
-                        "location": event.location,
-                        "event_time": event_dt,
-                        "notify_time": notify_time
-                    },
-                    name=f"{user_id}_{event.name}_{event_dt.timestamp()}"
-                )
                 reminders_count += 1
 
         # Сохраняем обновленные события в хранилище
         storage.save_schedule(user_id, events)
+
+        # Если это первый раз когда пользователь загружает расписание - запускаем фоновую задачу
+        if not any(job.name == "reminder_checker" for job in context.job_queue.jobs()):
+            context.job_queue.run_repeating(
+                callback=check_and_send_reminders,
+                interval=60,  # Каждую минуту
+                first=0,
+                name="reminder_checker"
+            )
 
         await update.message.reply_text(
             f"✅ Расписание успешно загружено!\n"
@@ -72,23 +65,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def restore_reminders(application):
-    """Восстанавливает все активные напоминания при запуске бота"""
-    for user_id, events in storage.get_all_schedules().items():
-        for event in events:
-            event_dt = event.begin.datetime.astimezone(EKATERINBURG_TZ)
-            notify_time = event_dt - timedelta(minutes=5)
-            now = datetime.now(EKATERINBURG_TZ)
-
-            if notify_time > now:
-                application.job_queue.run_once(
-                    callback=send_reminder,
-                    when=(notify_time - now),
-                    user_id=user_id,
-                    data={
-                        "event_name": event.name,
-                        "location": event.location,
-                        "event_time": event_dt,
-                        "notify_time": notify_time
-                    },
-                    name=f"{user_id}_{event.name}_{event_dt.timestamp()}"
-                )
+    """Запускает фоновую задачу для проверки напоминаний при старте бота"""
+    if not any(job.name == "reminder_checker" for job in application.job_queue.jobs()):
+        application.job_queue.run_repeating(
+            callback=check_and_send_reminders,
+            interval=60,
+            first=0,
+            name="reminder_checker"
+        )

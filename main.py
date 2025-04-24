@@ -59,7 +59,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Текущая временная зона: Екатеринбург (Asia/Yekaterinburg)\n\n"
         "Доступные команды:\n"
         "/today - пары на сегодня\n"
-        "/reminders - показать все активные напоминания"
+        "/reminders - показать все активные напоминания\n"
+        "/notifications - управление уведомлениями"
     )
 
 

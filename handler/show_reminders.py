@@ -1,51 +1,55 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from bd.ScheduleStorage import ScheduleStorage
 from config import EKATERINBURG_TZ
 from format import format_datetime, format_timedelta
+
+storage = ScheduleStorage()
 
 
 async def show_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     try:
-        # Ищем все задачи пользователя
-        user_jobs = [job for job in context.job_queue.jobs() if str(user_id) in job.name]
+        # Получаем события пользователя из хранилища
+        events = storage.load_schedule(user_id)
 
-        if not user_jobs:
-            await update.message.reply_text("У вас нет активных напоминаний")
+        if not events:
+            await update.message.reply_text("У вас нет сохраненных событий")
             return
 
         reminders = []
         now = datetime.now(EKATERINBURG_TZ)
 
-        for job in sorted(user_jobs, key=lambda j: j.data["event_time"]):
+        for event in sorted(events, key=lambda e: e.begin.datetime):
             try:
-                event_time = job.data["event_time"]
-                notify_time = job.data["notify_time"]
+                event_dt = event.begin.datetime.astimezone(EKATERINBURG_TZ)
+                notify_time = event_dt - timedelta(minutes=5)
                 time_left = notify_time - now
 
-                if time_left.total_seconds() > 0:
+                # Показываем только будущие события
+                if event_dt > now:
                     reminders.append(
-                        f"📌 {job.data.get('event_name', 'Без названия')}\n"
+                        f"📌 {event.name or 'Без названия'}\n"
                         f"⏰ Напоминание в: {format_datetime(notify_time)}\n"
-                        f"🕒 Начало пары: {format_datetime(event_time)}\n"
+                        f"🕒 Начало пары: {format_datetime(event_dt)}\n"
                         f"⏱ Осталось: {format_timedelta(time_left)}\n"
-                        f"📍 {job.data.get('location', 'место не указано')}\n"
+                        f"📍 {event.location or 'место не указано'}\n"
                     )
             except Exception as e:
-                print(f"Ошибка обработки напоминания: {e}")
+                print(f"Ошибка обработки события: {e}")
                 continue
 
         if not reminders:
-            await update.message.reply_text("Активных напоминаний нет или они уже сработали")
+            await update.message.reply_text("Активных напоминаний нет (все события уже прошли)")
         else:
             # Разбиваем вывод на части, если слишком много напоминаний
             for i in range(0, len(reminders), 5):
                 chunk = reminders[i:i + 5]
                 await update.message.reply_text(
-                    "📋 Ваши активные напоминания:\n\n" +
+                    "📋 Ваши предстоящие события:\n\n" +
                     "\n".join(chunk)
                 )
 
