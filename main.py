@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 import locale
 from datetime import datetime, date
 
