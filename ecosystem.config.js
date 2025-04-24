@@ -2,14 +2,15 @@ module.exports = {
   apps: [
     {
       name: "telegram-bot",
-      script: "python3",
-      args: "main.py",
-      interpreter: "python3",
+      script: "/usr/bin/python3",  // полный путь
+      args: "./main.py",           // относительный или полный путь
+      interpreter: "none",         // отключите интерпретатор PM2 для Python
       watch: true,
-      max_restarts: 10, // Добавлено max_restarts
+      max_restarts: 10,
       env: {
         NODE_ENV: "development",
-      },
-    },
-  ],
+        PYTHONIOENCODING: "utf-8"  // явно задаём кодировку
+      }
+    }
+  ]
 };
