@@ -60,7 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Доступные команды:\n"
         "/today - пары на сегодня\n"
         "/reminders - показать все активные напоминания\n"
-        "/notifications - управление уведомлениями"
+        #"/notifications - управление уведомлениями"
     )
 
 
